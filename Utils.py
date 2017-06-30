@@ -1,16 +1,11 @@
-import random
+import signal
 import subprocess
-
-import numpy as np
 import time
 
-import signal
-from gym import spaces
-from rl.core import Env
 import hfo_py
+from gym import spaces
 from hfo import *
-import gym_soccer
-import gym
+from rl.core import Env
 
 max_turn_angle = 180
 min_turn_angle = -180

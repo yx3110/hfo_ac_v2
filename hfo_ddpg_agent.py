@@ -2,7 +2,6 @@ import os
 from copy import deepcopy
 
 from keras.callbacks import History
-from pandas import json
 from rl.callbacks import TrainEpisodeLogger, TrainIntervalLogger, Visualizer, CallbackList
 from rl.core import Agent
 from rl.util import *
@@ -148,7 +147,7 @@ class HFODDPGAgent(Agent):
         action_arr = self.actor.predict(state)[0]
         dice = np.random.uniform(0, 1)
         if dice < self.epsilon and self.training and self.step>self.nb_steps_warmup_actor:
-            print "Random action is taken for exploration, e = " + str(self.epsilon)
+            print "Random action is taken for exploration, e = " + str(self.epsilon)+'\n'
             new_action_arr = [np.random.uniform(-1, 1), np.random.uniform(-1, 1), np.random.uniform(-1, 1),
                               np.random.uniform(0, 100), np.random.uniform(-180, 180),
                               np.random.uniform(-180, 180), np.random.uniform(0, 100),
