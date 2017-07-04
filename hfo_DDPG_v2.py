@@ -32,7 +32,7 @@ enemy_size = 0
 action_dim = 8
 state_size = 58 + (team_size - 1) * 8 + enemy_size * 8
 
-memory = SequentialMemory(limit=10000, window_length=1)
+memory = SequentialMemory(limit=100000, window_length=1)
 
 critic_input_action = Input(shape=[action_dim], name='critic_ain')
 critic_input_state = Input(shape=[state_size], name='critic_sin')
@@ -81,13 +81,7 @@ param_out = Dense(5, kernel_initializer=initializers.glorot_normal(),
 actor_out = layers.concatenate([action_out, param_out], axis=1, name='actor_out')
 actor = Model(inputs=actor_input, outputs=actor_out)
 actor.summary()
-'''
-hfo = HFOEnvironment()
-hfo.connectToServer(LOW_LEVEL_FEATURE_SET,
-                    '/Users/eclipse/HFO/bin/teams/base/config/formations-dt', 6000,
-                    'localhost', 'base_left', False)
-hfoENV = hfoENV(hfo)
-'''
+
 random_process = OrnsteinUhlenbeckProcess(size=10, theta=.15, mu=0., sigma=.3)
 env = hfoENV()
 agent = HFODDPGAgent(nb_actions=8, actor=actor, critic=critic, critic_action_input=critic_input_action,
@@ -96,5 +90,5 @@ agent = HFODDPGAgent(nb_actions=8, actor=actor, critic=critic, critic_action_inp
 
 agent.compile(Adam(lr=.0001, clipnorm=1.), metrics=['mse'])
 print "Agent Compiled, start training"
-agent.fit(env=env, nb_steps=2000000, verbose=1)
+agent.fit(env=env, nb_steps=20000000, verbose=1,nb_episodes=20000)
 agent.save_weights('ddpg_{}_weights.h5f'.format('hfo'), overwrite=True)

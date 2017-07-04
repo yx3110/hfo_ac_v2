@@ -3,7 +3,6 @@ import subprocess
 import time
 
 import hfo_py
-from gym import spaces
 from hfo import *
 from rl.core import Env
 
@@ -45,15 +44,6 @@ class hfoENV(Env):
         self.env = hfo_py.HFOEnvironment()
         self.env.connectToServer(feature_set=LOW_LEVEL_FEATURE_SET, config_dir=hfo_py.get_config_path(), )
         self.game_info = GameInfo(1)
-        self.action_space = spaces.Tuple((spaces.Discrete(3),
-                                          spaces.Box(low=0, high=100, shape=1),
-                                          spaces.Box(low=-180, high=180, shape=1),
-                                          spaces.Box(low=-180, high=180, shape=1),
-                                          spaces.Box(low=0, high=100, shape=1),
-                                          spaces.Box(low=-180, high=180, shape=1)))
-
-        self.observation_space = spaces.Box(low=-1, high=1,
-                                            shape=(self.env.getStateSize()))
 
     def close(self):
         self.env.act(hfo_py.QUIT)
@@ -66,12 +56,6 @@ class hfoENV(Env):
         self._start_hfo_server()
 
     def reset(self):
-        while self.game_info.status == hfo_py.IN_GAME:
-            self.env.act(hfo_py.NOOP)
-            self.status = self.env.step()
-        while self.game_info.status != hfo_py.IN_GAME:
-            self.env.act(hfo_py.NOOP)
-            self.status = self.env.step()
         self.game_info.reset()
         return self.env.getState()
 
@@ -105,7 +89,7 @@ class hfoENV(Env):
     def _start_hfo_server(self, frames_per_trial=100,
                           untouched_time=100, offense_agents=1,
                           defense_agents=0, offense_npcs=0,
-                          defense_npcs=0, sync_mode=False, port=6000,
+                          defense_npcs=0, sync_mode=True, port=6000,
                           offense_on_ball=0, fullstate=True, seed=-1,
                           ball_x_min=0.0, ball_x_max=0.2,
                           verbose=False, log_game=False,
@@ -184,10 +168,25 @@ class GameInfo:
         self.pass_active = False
 
     def reset(self):
-        self.__init__(self.our_unum)
+        self.got_kickable_reward = False
+        self.prev_ball_prox = 0
+        self.ball_prox_delta = 0
+        self.prev_kickable = 0
+        self.kickable_delta = 0
+        self.prev_ball_dist_goal = 0
+        self.ball_dist_goal_delta = 0
+        self.steps = 0
+        self.total_reward = 0
+        self.extrinsic_reward = 0
+        self.status = IN_GAME
+        self.episode_over = False
+        self.prev_player_on_ball = 0
+        self.player_on_ball = 0
+        self.pass_active = False
 
     def update(self, hfo_env):
         self.status = hfo_env.step()
+        print 'status: '+str(self.episode_over)
         if self.status != IN_GAME:
             self.episode_over = True
         cur_obs = hfo_env.getState()

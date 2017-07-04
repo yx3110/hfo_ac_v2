@@ -1,4 +1,5 @@
 import os
+import warnings
 from copy import deepcopy
 import tensorflow as tf
 
@@ -14,26 +15,14 @@ min_power = 0
 max_act_val = 1
 min_act_val = -1
 
+load_weight = False
+
 
 def bound(grad, param, max_val, min_val):
     condition = tf.greater(grad, 0)
-    res = tf.where(condition, tf.multiply(grad, np.divide(max_val - param, max_val - min_val)),
-                   tf.multiply(grad, np.divide(param - min_val, max_val - min_val)))
+    res = tf.where(condition, tf.multiply(grad, tf.div(max_val - param, max_val - min_val)),
+                   tf.multiply(grad, tf.div(param - min_val, max_val - min_val)))
     return res
-    '''
-    if tf.greater(grad, tf.constant(0, dtype=tf.float32)):
-        return tf.mutiply(grad, np.divide(max_val - param, max_val - min_val))
-    else:
-        return grad * np.divide(param - min_val, max_val - min_val)
-'''
-
-
-def true_fn(*args):
-    return args[0] * np.divide(args[2] - args[1], args[2] - args[3])
-
-
-def false_fn(grad, param, max_val, min_val):
-    return grad * np.divide(param - min_val, max_val - min_val)
 
 
 def bound_grads(cur_grads, cur_actions, index):
@@ -44,7 +33,7 @@ def bound_grads(cur_grads, cur_actions, index):
     elif index == 4 or index == 5 or index == 7:
         res = bound(cur_grads[index], cur_actions[index], max_turn_angle, min_turn_angle)
     else:
-        res = 0
+        res = 0.
     return res
 
 
@@ -56,8 +45,24 @@ class HFODDPGAgent(Agent):
     def __init__(self, nb_actions, actor, critic, critic_action_input, memory,
                  gamma=.99, batch_size=32, nb_steps_warmup_critic=1000, nb_steps_warmup_actor=1000,
                  train_interval=1, memory_interval=1, delta_range=None, delta_clip=np.inf,
-                 random_process=None, custom_model_objects={}, target_model_update=.001, ):
-        super(Agent, self).__init__()
+                 random_process=None, custom_model_objects={}, target_model_update=.001, **kwargs):
+
+        if critic_action_input not in critic.input:
+            raise ValueError(
+                'Critic "{}" does not have designated action input "{}".'.format(critic, critic_action_input))
+
+        if not hasattr(critic.input, '__len__') or len(critic.input) < 2:
+            raise ValueError(
+                'Critic "{}" does not have enough inputs. The critic must have at leas two inputs, one for the '
+                'action and one for the observation.'.format(
+                    critic))
+
+        if delta_range is not None:
+            warnings.warn('`delta_range` is deprecated. Please use `delta_clip` instead, which takes a single scalar. '
+                          'For now we\'re falling back to `delta_range[1] = {}`'.format(delta_range[1]))
+            delta_clip = delta_range[1]
+
+        super(Agent, self).__init__(**kwargs)
         self.processor = None
         self.memory = memory
 
@@ -76,7 +81,7 @@ class HFODDPGAgent(Agent):
         self.memory_interval = memory_interval
         self.custom_model_objects = custom_model_objects
         self.endE = 0.1
-        annealing_steps = 10000
+        annealing_steps = 2500
         self.evaluateE = 0
         self.step_drop = (self.startE - self.endE) / annealing_steps
         self.critic_action_input = critic_action_input
@@ -159,7 +164,7 @@ class HFODDPGAgent(Agent):
             for index in range(len(modified_grads)):
                 res.append(bound_grads(modified_grads, params, index))
 
-            return modified_grads
+            return res
 
         actor_optimizer.get_gradients = get_gradients
         updates = actor_optimizer.get_updates(self.actor.trainable_weights, self.actor.constraints, None)
@@ -194,7 +199,7 @@ class HFODDPGAgent(Agent):
         action_arr = self.actor.predict(state)[0]
         dice = np.random.uniform(0, 1)
         if dice < self.epsilon and self.training and self.step > self.nb_steps_warmup_actor:
-            print "Random action is taken for exploration, e = " + str(self.epsilon) + '\n'
+            print "\nRandom action is taken for exploration, e = " + str(self.epsilon) + '\n'
             new_action_arr = [np.random.uniform(-1, 1), np.random.uniform(-1, 1), np.random.uniform(-1, 1),
                               np.random.uniform(0, 100), np.random.uniform(-180, 180),
                               np.random.uniform(-180, 180), np.random.uniform(0, 100),
@@ -204,7 +209,7 @@ class HFODDPGAgent(Agent):
             self.epsilon -= self.step_drop
 
         # Take an action and get the current game status
-        print action_arr
+        print '\n'+str(action_arr)
 
         return action_arr
 
@@ -355,15 +360,18 @@ class HFODDPGAgent(Agent):
         callbacks.on_train_begin()
         episode = 0
         self.step = 0
+        episode_reward = 0
+        episode_step = 0
         did_abort = False
+        if load_weight:
+            self.load_weights(file_path="")
+
         if self.training:
             self.epsilon = self.startE
         else:
             self.epsilon = self.evaluateE
         try:
-            episode_reward = 0
-            episode_step = 0
-            while episode < nb_episodes:
+            while self.step < nb_steps:
                 callbacks.on_episode_begin(episode)
 
                 # Obtain the initial observation by resetting the environment.
@@ -371,7 +379,6 @@ class HFODDPGAgent(Agent):
                 if self.processor is not None:
                     observation = self.processor.process_observation(observation)
                 assert observation is not None
-
                 assert episode_reward is not None
                 assert episode_step is not None
                 callbacks.on_step_begin(episode_step)
@@ -385,11 +392,13 @@ class HFODDPGAgent(Agent):
                 observation = deepcopy(observation)
                 if self.processor is not None:
                     observation, r, done, info = self.processor.process_step(observation, r, done, info)
+
+                print 'done: '+str(done)
                 callbacks.on_action_end(action)
                 reward += r
-                print 'reward: ' + str(reward)
                 metrics = self.backward(reward, terminal=done)
                 episode_reward += reward
+                print 'reward: ' + str(reward)
                 step_logs = {
                     'action': action,
                     'observation': observation,
@@ -408,10 +417,12 @@ class HFODDPGAgent(Agent):
                         'nb_episode_steps': episode_step,
                         'nb_steps': self.step,
                     }
+                    print 'episode '+str(episode)+' finished'
                     callbacks.on_episode_end(episode, episode_logs)
                     episode_step = 0
                     episode_reward = 0
                     episode += 1
+                    env.reset()
                     if np.mod(episode, 10) == 0 and self.training:
                         self.save_weights(file_path="", overwrite=True)
 
