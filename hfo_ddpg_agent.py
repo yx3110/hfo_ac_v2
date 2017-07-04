@@ -1,10 +1,51 @@
 import os
 from copy import deepcopy
+import tensorflow as tf
 
 from keras.callbacks import History
 from rl.callbacks import TrainEpisodeLogger, TrainIntervalLogger, Visualizer, CallbackList
 from rl.core import Agent
 from rl.util import *
+
+max_turn_angle = 180
+min_turn_angle = -180
+max_power = 100
+min_power = 0
+max_act_val = 1
+min_act_val = -1
+
+
+def bound(grad, param, max_val, min_val):
+    condition = tf.greater(grad, 0)
+    res = tf.where(condition, tf.multiply(grad, np.divide(max_val - param, max_val - min_val)),
+                   tf.multiply(grad, np.divide(param - min_val, max_val - min_val)))
+    return res
+    '''
+    if tf.greater(grad, tf.constant(0, dtype=tf.float32)):
+        return tf.mutiply(grad, np.divide(max_val - param, max_val - min_val))
+    else:
+        return grad * np.divide(param - min_val, max_val - min_val)
+'''
+
+
+def true_fn(*args):
+    return args[0] * np.divide(args[2] - args[1], args[2] - args[3])
+
+
+def false_fn(grad, param, max_val, min_val):
+    return grad * np.divide(param - min_val, max_val - min_val)
+
+
+def bound_grads(cur_grads, cur_actions, index):
+    if 0 <= index < 3:
+        res = bound(cur_grads[index], cur_actions[index], max_act_val, min_act_val)
+    elif index == 3 or index == 6:
+        res = bound(cur_grads[index], cur_actions[index], max_power, min_power)
+    elif index == 4 or index == 5 or index == 7:
+        res = bound(cur_grads[index], cur_actions[index], max_turn_angle, min_turn_angle)
+    else:
+        res = 0
+    return res
 
 
 def mean_q(y_true, y_pred):
@@ -86,6 +127,7 @@ class HFODDPGAgent(Agent):
         # Combine actor and critic so that we can get the policy gradient.
         combined_inputs = []
         critic_inputs = []
+
         for i in self.critic.input:
             if i == self.critic_action_input:
                 combined_inputs.append(self.actor.output)
@@ -93,9 +135,9 @@ class HFODDPGAgent(Agent):
                 combined_inputs.append(i)
                 critic_inputs.append(i)
         combined_output = self.critic(combined_inputs)
-
         grads = K.gradients(combined_output, self.actor.trainable_weights)
         grads = [g / float(self.batch_size) for g in grads]  # since TF sums over the batch
+
         # We now have the gradients (`grads`) of the combined model wrt to the actor's weights and
         # the output (`output`). Compute the necessary updates using a clone of the actor's optimizer.
         clipnorm = getattr(actor_optimizer, 'clipnorm', 0.)
@@ -111,6 +153,11 @@ class HFODDPGAgent(Agent):
                 modified_grads = [optimizers.clip_norm(g, clipnorm, norm) for g in modified_grads]
             if clipvalue > 0.:
                 modified_grads = [K.clip(g, -clipvalue, clipvalue) for g in modified_grads]
+
+            res = []
+
+            for index in range(len(modified_grads)):
+                res.append(bound_grads(modified_grads, params, index))
 
             return modified_grads
 
@@ -146,8 +193,8 @@ class HFODDPGAgent(Agent):
     def select_action(self, state):
         action_arr = self.actor.predict(state)[0]
         dice = np.random.uniform(0, 1)
-        if dice < self.epsilon and self.training and self.step>self.nb_steps_warmup_actor:
-            print "Random action is taken for exploration, e = " + str(self.epsilon)+'\n'
+        if dice < self.epsilon and self.training and self.step > self.nb_steps_warmup_actor:
+            print "Random action is taken for exploration, e = " + str(self.epsilon) + '\n'
             new_action_arr = [np.random.uniform(-1, 1), np.random.uniform(-1, 1), np.random.uniform(-1, 1),
                               np.random.uniform(0, 100), np.random.uniform(-180, 180),
                               np.random.uniform(-180, 180), np.random.uniform(0, 100),
@@ -314,10 +361,10 @@ class HFODDPGAgent(Agent):
         else:
             self.epsilon = self.evaluateE
         try:
+            episode_reward = 0
+            episode_step = 0
             while episode < nb_episodes:
                 callbacks.on_episode_begin(episode)
-                episode_step = 0
-                episode_reward = 0.
 
                 # Obtain the initial observation by resetting the environment.
                 observation = env.env.getState()
@@ -327,7 +374,6 @@ class HFODDPGAgent(Agent):
 
                 assert episode_reward is not None
                 assert episode_step is not None
-                assert observation is not None
                 callbacks.on_step_begin(episode_step)
                 # This is were all of the work happens. We first perceive and compute the action
                 # (forward step) and then use the reward to improve (backward step).
@@ -341,6 +387,7 @@ class HFODDPGAgent(Agent):
                     observation, r, done, info = self.processor.process_step(observation, r, done, info)
                 callbacks.on_action_end(action)
                 reward += r
+                print 'reward: ' + str(reward)
                 metrics = self.backward(reward, terminal=done)
                 episode_reward += reward
                 step_logs = {
@@ -362,10 +409,11 @@ class HFODDPGAgent(Agent):
                         'nb_steps': self.step,
                     }
                     callbacks.on_episode_end(episode, episode_logs)
-
+                    episode_step = 0
+                    episode_reward = 0
                     episode += 1
                     if np.mod(episode, 10) == 0 and self.training:
-                        self.save_weights(file_path="",overwrite=True)
+                        self.save_weights(file_path="", overwrite=True)
 
         except KeyboardInterrupt:
             # We catch keyboard interrupts here so that training can be be safely aborted.

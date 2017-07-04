@@ -1,11 +1,9 @@
-
 from keras import Input, layers
 from keras.engine import Model
 from keras.layers import LeakyReLU, Dense, initializers
-from keras.optimizers import Nadam
+from keras.optimizers import Adam
 from rl.memory import SequentialMemory
 from rl.random import OrnsteinUhlenbeckProcess
-
 
 from Utils import hfoENV
 
@@ -35,6 +33,7 @@ action_dim = 8
 state_size = 58 + (team_size - 1) * 8 + enemy_size * 8
 
 memory = SequentialMemory(limit=10000, window_length=1)
+
 critic_input_action = Input(shape=[action_dim], name='critic_ain')
 critic_input_state = Input(shape=[state_size], name='critic_sin')
 critic_input_final = layers.concatenate([critic_input_state, critic_input_action], axis=1, name='critic_in')
@@ -79,7 +78,7 @@ action_out = Dense(3, kernel_initializer=initializers.glorot_normal(),
 param_out = Dense(5, kernel_initializer=initializers.glorot_normal(),
                   bias_initializer=initializers.glorot_normal(), name='actor_pout')(
     relu4)
-actor_out = layers.concatenate([action_out, param_out], axis=1)
+actor_out = layers.concatenate([action_out, param_out], axis=1, name='actor_out')
 actor = Model(inputs=actor_input, outputs=actor_out)
 actor.summary()
 '''
@@ -92,10 +91,10 @@ hfoENV = hfoENV(hfo)
 random_process = OrnsteinUhlenbeckProcess(size=10, theta=.15, mu=0., sigma=.3)
 env = hfoENV()
 agent = HFODDPGAgent(nb_actions=8, actor=actor, critic=critic, critic_action_input=critic_input_action,
-                  memory=memory, nb_steps_warmup_critic=1000, nb_steps_warmup_actor=1000,
-                  random_process=random_process, gamma=.99, target_model_update=1e-3)
+                     memory=memory, nb_steps_warmup_critic=1000, nb_steps_warmup_actor=1000,
+                     random_process=random_process, gamma=.99, target_model_update=1e-3)
 
-agent.compile(Nadam(lr=.001, clipnorm=1.), metrics=['mse'])
+agent.compile(Adam(lr=.0001, clipnorm=1.), metrics=['mse'])
 print "Agent Compiled, start training"
 agent.fit(env=env, nb_steps=2000000, verbose=1)
 agent.save_weights('ddpg_{}_weights.h5f'.format('hfo'), overwrite=True)

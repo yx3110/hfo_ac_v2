@@ -15,6 +15,25 @@ min_act_val = -1
 max_act_val = 1
 
 
+def get_action(action_arr):
+    res = []
+    res_action = 0
+
+    cur_max = action_arr[0]
+    for i in xrange(0, 2):
+        if action_arr[i] >= cur_max:
+            res_action = i
+
+    res.append(res_action)
+
+    for i in range(3, len(action_arr)):
+        res.append(action_arr[i])
+
+    print res
+
+    return res
+
+
 class hfoENV(Env):
     def __init__(self):
         super(hfoENV, self)
@@ -24,7 +43,7 @@ class hfoENV(Env):
         self.hfo_path = hfo_py.get_hfo_path()
         self.configure()
         self.env = hfo_py.HFOEnvironment()
-        self.env.connectToServer(config_dir=hfo_py.get_config_path())
+        self.env.connectToServer(feature_set=LOW_LEVEL_FEATURE_SET, config_dir=hfo_py.get_config_path(), )
         self.game_info = GameInfo(1)
         self.action_space = spaces.Tuple((spaces.Discrete(3),
                                           spaces.Box(low=0, high=100, shape=1),
@@ -60,7 +79,7 @@ class hfoENV(Env):
         return seed
 
     def step(self, action):
-        action = self.get_action(action)
+        action = get_action(action)
         return self.take_action(action)
 
     def render(self, mode='human', close=False):
@@ -79,7 +98,7 @@ class hfoENV(Env):
         used with a *.rcg logfile to replay a game. See details at
         https://github.com/LARG/HFO/blob/master/doc/manual.pdf.
         """
-        cmd = hfo_py.get_viewer_path() +\
+        cmd = hfo_py.get_viewer_path() + \
               " --connect --port %d" % (self.server_port)
         self.viewer = subprocess.Popen(cmd.split(' '), shell=False)
 
@@ -141,44 +160,6 @@ class hfoENV(Env):
 
         return self.game_info.update(self.env)
 
-    def get_action(self, action_arr):
-        res = []
-        res_action = 0
-
-        action_arr_copy = []
-        for i in xrange(len(action_arr)):
-            action_arr_copy.append(action_arr[i])
-        cur_max = action_arr_copy[0]
-        action_arr_copy[2] = -99999
-        for i in xrange(0, 2):
-            if action_arr_copy[i] >= cur_max:
-                res_action = i
-
-        res.append(res_action)
-
-        for i in range(3, len(action_arr)):
-            res.append(action_arr[i])
-
-        print res
-
-        return res
-
-
-def bound(grad, param, max_val, min_val):
-    if grad > 0:
-        return grad * np.divide(max_val - param, max_val - min_val)
-    else:
-        return grad * np.divide(param - min_val, max_val - min_val)
-
-
-def bound_grads(cur_grads, cur_actions, index):
-    if 0 <= index < 4:
-        cur_grads[index] = bound(cur_grads[index], cur_actions[index], max_act_val, min_act_val)
-    if index == 4 or index == 8:
-        cur_grads[index] = bound(cur_grads[index], cur_actions[index], max_power, min_power)
-    elif index == 5 or index == 6 or index == 7 or index == 9:
-        cur_grads[index] = bound(cur_grads[index], cur_actions[index], max_turn_angle, min_turn_angle)
-
 
 kPassVelThreshold = -.5
 
@@ -203,21 +184,7 @@ class GameInfo:
         self.pass_active = False
 
     def reset(self):
-        self.got_kickable_reward = False
-        self.prev_ball_prox = 0
-        self.ball_prox_delta = 0
-        self.prev_kickable = 0
-        self.kickable_delta = 0
-        self.prev_ball_dist_goal = 0
-        self.ball_dist_goal_delta = 0
-        self.steps = 0
-        self.total_reward = 0
-        self.extrinsic_reward = 0
-        self.status = IN_GAME
-        self.episode_over = False
-        self.prev_player_on_ball = 0
-        self.player_on_ball = 0
-        self.pass_active = False
+        self.__init__(self.our_unum)
 
     def update(self, hfo_env):
         self.status = hfo_env.step()
