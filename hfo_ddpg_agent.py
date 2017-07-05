@@ -86,6 +86,12 @@ class HFODDPGAgent(Agent):
         self.step_drop = (self.startE - self.endE) / annealing_steps
         self.critic_action_input = critic_action_input
         self.critic_action_input_idx = self.critic.input.index(critic_action_input)
+        self.compiled = False
+        self.actor_train_fn = None
+        self.actor_optimizer = None
+        self.recent_action = None
+        self.recent_observation = None
+        self.epsilon = 0
 
     @property
     def uses_learning_phase(self):
@@ -97,7 +103,8 @@ class HFODDPGAgent(Agent):
         if type(optimizer) in (list, tuple):
             if len(optimizer) != 2:
                 raise ValueError(
-                    'More than two optimizers provided. Please only provide a maximum of two optimizers, the first one for the actor and the second one for the critic.')
+                    'More than two optimizers provided. Please only provide a maximum of two optimizers, the first '
+                    'one for the actor and the second one for the critic.')
             actor_optimizer, critic_optimizer = optimizer
         else:
             actor_optimizer = optimizer
@@ -122,6 +129,12 @@ class HFODDPGAgent(Agent):
         self.target_actor.compile(optimizer='sgd', loss='mse')
         self.target_critic = clone_model(self.critic, self.custom_model_objects)
         self.target_critic.compile(optimizer='sgd', loss='mse')
+
+        # We also compile the actor. We never optimize the actor using Keras but instead compute
+        # the policy gradient ourselves. However, we need the actor in feed-forward mode, hence
+        # we also compile it with any optimizer
+        self.actor.compile(optimizer='sgd', loss='mse')
+
         # Compile the critic.
         if self.target_model_update < 1.:
             # We use the `AdditionalUpdatesOptimizer` to efficiently soft-update the target model.
@@ -158,25 +171,23 @@ class HFODDPGAgent(Agent):
                 modified_grads = [optimizers.clip_norm(g, clipnorm, norm) for g in modified_grads]
             if clipvalue > 0.:
                 modified_grads = [K.clip(g, -clipvalue, clipvalue) for g in modified_grads]
-
-            res = []
-
-            for index in range(len(modified_grads)):
-                res.append(bound_grads(modified_grads, params, index))
-
-            return res
+            return modified_grads
 
         actor_optimizer.get_gradients = get_gradients
         updates = actor_optimizer.get_updates(self.actor.trainable_weights, self.actor.constraints, None)
+
         if self.target_model_update < 1.:
             # Include soft target model updates.
             updates += get_soft_target_model_updates(self.target_actor, self.actor, self.target_model_update)
         updates += self.actor.updates  # include other updates of the actor, e.g. for BN
+        print 'len of updates: '+str(len(updates))
+        print type(updates[0])
 
         # Finally, combine it all into a callable function.
         inputs = self.actor.inputs[:] + critic_inputs
         if self.uses_learning_phase:
             inputs += [K.learning_phase()]
+        print len(inputs)
         self.actor_train_fn = K.function(inputs, [self.actor.output], updates=updates)
         self.actor_optimizer = actor_optimizer
 
@@ -184,7 +195,7 @@ class HFODDPGAgent(Agent):
 
     def forward(self, observation, env):
         # Select an action.
-        state = np.reshape(self.memory.get_recent_state(observation), [1, 58])
+        state = np.reshape(observation, [1, 58])
         action = self.select_action(state)
         if self.processor is not None:
             action = self.processor.process_action(action)
@@ -209,7 +220,7 @@ class HFODDPGAgent(Agent):
             self.epsilon -= self.step_drop
 
         # Take an action and get the current game status
-        print '\n'+str(action_arr)
+        print '\nRaw action array:\n' + str(action_arr)
 
         return action_arr
 
@@ -243,7 +254,7 @@ class HFODDPGAgent(Agent):
         if self.step % self.memory_interval == 0:
             self.memory.append(self.recent_observation, self.recent_action, reward, terminal,
                                training=self.training)
-
+        print 'memsize: ' + str(self.memory.observations.length)
         metrics = [np.nan for _ in self.metrics_names]
         if not self.training:
             # We're done here. No need to update the experience memory since we only use the working
@@ -393,7 +404,6 @@ class HFODDPGAgent(Agent):
                 if self.processor is not None:
                     observation, r, done, info = self.processor.process_step(observation, r, done, info)
 
-                print 'done: '+str(done)
                 callbacks.on_action_end(action)
                 reward += r
                 metrics = self.backward(reward, terminal=done)
@@ -417,7 +427,6 @@ class HFODDPGAgent(Agent):
                         'nb_episode_steps': episode_step,
                         'nb_steps': self.step,
                     }
-                    print 'episode '+str(episode)+' finished'
                     callbacks.on_episode_end(episode, episode_logs)
                     episode_step = 0
                     episode_reward = 0

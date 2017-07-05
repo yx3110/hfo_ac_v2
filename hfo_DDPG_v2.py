@@ -32,7 +32,7 @@ enemy_size = 0
 action_dim = 8
 state_size = 58 + (team_size - 1) * 8 + enemy_size * 8
 
-memory = SequentialMemory(limit=100000, window_length=1)
+memory = SequentialMemory(limit=10000, window_length=1)
 
 critic_input_action = Input(shape=[action_dim], name='critic_ain')
 critic_input_state = Input(shape=[state_size], name='critic_sin')
@@ -89,6 +89,5 @@ agent = HFODDPGAgent(nb_actions=8, actor=actor, critic=critic, critic_action_inp
                      random_process=random_process, gamma=.99, target_model_update=1e-3)
 
 agent.compile(Adam(lr=.0001, clipnorm=1.), metrics=['mse'])
-print "Agent Compiled, start training"
 agent.fit(env=env, nb_steps=20000000, verbose=1,nb_episodes=20000)
 agent.save_weights('ddpg_{}_weights.h5f'.format('hfo'), overwrite=True)

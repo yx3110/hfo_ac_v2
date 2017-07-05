@@ -19,7 +19,7 @@ def get_action(action_arr):
     res_action = 0
 
     cur_max = action_arr[0]
-    for i in xrange(0, 2):
+    for i in xrange(0, 3):
         if action_arr[i] >= cur_max:
             res_action = i
 
@@ -27,8 +27,6 @@ def get_action(action_arr):
 
     for i in range(3, len(action_arr)):
         res.append(action_arr[i])
-
-    print res
 
     return res
 
@@ -134,10 +132,13 @@ class hfoENV(Env):
         action_type = ACTION_LOOKUP[action[0]]
         if action_type == hfo_py.DASH:
             self.env.act(action_type, action[1], action[2])
+            print str(action_type) + ' ' + str(action[1]) + ' ' + str(action[2])
         elif action_type == hfo_py.TURN:
             self.env.act(action_type, action[3])
+            print str(action_type) + ' ' + str(action[3])
         elif action_type == hfo_py.KICK:
             self.env.act(action_type, action[4], action[5])
+            print str(action_type) + ' ' + str(action[4]) + ' ' + str(action[5])
         else:
             print('Unrecognized action %d' % action_type)
             self.env.act(hfo_py.NOOP)
@@ -186,7 +187,7 @@ class GameInfo:
 
     def update(self, hfo_env):
         self.status = hfo_env.step()
-        print 'status: '+str(self.episode_over)
+        print 'status: ' + str(self.episode_over)
         if self.status != IN_GAME:
             self.episode_over = True
         cur_obs = hfo_env.getState()
