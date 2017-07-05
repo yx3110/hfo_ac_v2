@@ -126,7 +126,7 @@ class hfoENV(Env):
         if not log_game:  cmd += " --no-logging"
         print('Starting server with command: %s' % cmd)
         self.server_process = subprocess.Popen(cmd.split(' '), shell=False)
-        time.sleep(3)  # Wait for server to startup before connecting a player
+        time.sleep(10)  # Wait for server to startup before connecting a player
 
     def take_action(self, action):
         action_type = ACTION_LOOKUP[action[0]]
